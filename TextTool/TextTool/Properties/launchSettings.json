@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "TextTool": {
+      "commandName": "Project",
+      "commandLineArgs": " \"G:\\Projects\\Cadwise\\big.txt\" \"G:\\Projects\\Cadwise\\lol.txt\" 6"
+    }
+  }
+}
