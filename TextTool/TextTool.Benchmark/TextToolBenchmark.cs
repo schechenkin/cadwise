@@ -9,17 +9,20 @@ namespace TextTool.Benchmark
         private string output = "";
         private FileConverter converter;
 
+        [Params(1024, 4096)]
+        public long BufferSize { get; set; }
+
         [GlobalSetup]
         public void Setup()
         {
-            input = Path.Combine("G:", "Projects", "Cadwise", "big.txt");
-            output = Path.Combine("G:", "Projects", "Cadwise", "big_out.txt");
+            input = Path.Combine("G:", "Projects", "Cadwise_ATM", "big.txt");
+            output = Path.Combine("G:", "Projects", "Cadwise_ATM", "big_out.txt");
         }
 
         [IterationSetup]
         public void IterationSetup()
         {
-            converter = new FileConverter(input, output, 6, false);
+            converter = new FileConverter(input, output, 5, false);
         }
 
         [IterationCleanup]
@@ -31,13 +34,13 @@ namespace TextTool.Benchmark
         [Benchmark]
         public async Task ConvertAsync()
         {
-            await converter.ConvertAsync();
+            await converter.ConvertAsync(BufferSize);
         }
 
         [Benchmark]
-        public void Conver()
+        public void Convert()
         {
-            converter.Convert();
+            converter.Convert(BufferSize);
         }
     }
 }

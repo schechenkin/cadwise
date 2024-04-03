@@ -47,7 +47,7 @@ namespace Tests
         }
 
         [Fact]
-        public void Take_Money_Fails_When_Not_Enought_Banknoter()
+        public void Take_Money_Fails_When_Not_Enought_Banknotes()
         {
             //Given
             var sut = new ATM(capacity: new Dictionary<BanknoteType, uint>() {

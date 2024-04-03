@@ -5,54 +5,63 @@
         private char? _lastWrittenSymbol;
         private readonly string _source;
         private readonly string _destination;
-        private readonly int _wordMaxLength;
+        private readonly long _wordMinLength;
         private readonly bool _removePunctuation;
         private readonly ISymbolAnalyazer _symbolAnalyazer;
 
-        public FileConverter(string source, string destination, int wordMaxLength, bool removePunctuation, ISymbolAnalyazer symbolAnalyazer)
+        public FileConverter(string source, string destination, long wordMinLength, bool removePunctuation, ISymbolAnalyazer symbolAnalyazer)
         {
-            if (wordMaxLength < 0)
-                throw new ArgumentOutOfRangeException(nameof(wordMaxLength), "Value cannot be negative");
+            if (wordMinLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(wordMinLength), "Value cannot be negative");
 
             _source = source;
             _destination = destination;
-            _wordMaxLength = wordMaxLength;
+            _wordMinLength = wordMinLength;
             _removePunctuation = removePunctuation;
             _symbolAnalyazer = symbolAnalyazer;
         }
 
-        public FileConverter(string source, string destination, int wordMaxLength, bool removePunctuation = false)
-            :this(source, destination, wordMaxLength, removePunctuation, new SimpleSymbolAnalyazer())
+        public FileConverter(string source, string destination, long wordMinLength, bool removePunctuation = false)
+            :this(source, destination, wordMinLength, removePunctuation, new SimpleSymbolAnalyazer())
         {
         }
 
-        public void Convert()
+        public void Convert(long bufferSize = 4096)
         {
-            using (StreamReader reader = new StreamReader(_source))
-            using (StreamWriter writer = new StreamWriter(_destination, false, reader.CurrentEncoding))
+            using (var reader = new StreamReader(_source))
+            using (var writer = new BufferedCharFileWriter(_destination, reader.CurrentEncoding, bufferSize))
             {
-                WordBuffer wordBuffer = new WordBuffer(_wordMaxLength);
+                bool anyWordConfirmed = false;
 
                 while (!reader.EndOfStream)
                 {
-                    char symbol = (char)reader.Read();
+                    char symbol = (char)reader.Peek();
 
                     if (_symbolAnalyazer.IsWordSymbol(symbol))
                     {
-                        if (!wordBuffer.TryAddSymbol(symbol))
-                        {
-                            ReadRestOfWord(reader);
-                            wordBuffer.Reset();
-                        }
+                        var wordLength = WriteWholeWordToOutput(reader, writer);
+                        if(wordLength < _wordMinLength)
+                            writer.SeekBack(wordLength);
+                        else
+                            anyWordConfirmed = true;
+
                     }
                     else
                     {
-                        Write(wordBuffer, writer);
-                        wordBuffer.Reset();
+                        reader.Read();
 
                         if (_symbolAnalyazer.IsPunctuation(symbol))
                         {
-                            ProcessPunctuationSymbol(symbol, _removePunctuation, reader, writer);
+                            if (_removePunctuation)
+                            {
+                                var nextSymbol = reader.Peek();
+                                if (anyWordConfirmed && _lastWrittenSymbol != ' ' && nextSymbol != -1 && _symbolAnalyazer.IsWordSymbol((char)nextSymbol))
+                                    Write(' ', writer);
+                            }
+                            else
+                            {
+                                Write(symbol, writer);
+                            }
                         }
                         else
                         {
@@ -60,134 +69,96 @@
                         }
                     }
                 }
-
-                Write(wordBuffer, writer);
             }
         }
 
-        public async Task ConvertAsync()
+        // only for demo
+        public async Task ConvertAsync(long bufferSize = 4096)
         {
-            using (FileReader reader = new FileReader(_source))
-            using (StreamWriter writer = new StreamWriter(_destination, false, reader.CurrentEncoding))
+            using (var reader = new FileReader(_source, bufferSize))
+            using (var writer = new BufferedCharFileWriter(_destination, reader.CurrentEncoding, bufferSize))
             {
-                WordBuffer wordBuffer = new WordBuffer(_wordMaxLength);
+                bool anyWordConfirmed = false;
 
                 while (!reader.EndOfStream)
                 {
-                    char symbol = (char)await reader.ReadAsync();
+                    char symbol = (char)await reader.PeekAsync();
 
                     if (_symbolAnalyazer.IsWordSymbol(symbol))
                     {
-                        if (!wordBuffer.TryAddSymbol(symbol))
-                        {
-                            await ReadRestOfWordAsync(reader);
-                            wordBuffer.Reset();
-                        }
+                        var wordLength = await WriteWholeWordToOutputAsync(reader, writer);
+                        if (wordLength < _wordMinLength)
+                            writer.SeekBack(wordLength);
+                        else
+                            anyWordConfirmed = true;
+
                     }
                     else
                     {
-                        Write(wordBuffer, writer);
-                        wordBuffer.Reset();
+                        await reader.ReadAsync();
 
                         if (_symbolAnalyazer.IsPunctuation(symbol))
                         {
-                            await ProcessPunctuationSymbolAsync(symbol, _removePunctuation, reader, writer);
+                            if (_removePunctuation)
+                            {
+                                var nextSymbol = await reader.PeekAsync();
+                                if (anyWordConfirmed && _lastWrittenSymbol != ' ' && nextSymbol != -1 && _symbolAnalyazer.IsWordSymbol((char)nextSymbol))
+                                    await WriteAsync(' ', writer);
+                            }
+                            else
+                            {
+                                await WriteAsync(symbol, writer);
+                            }
                         }
                         else
                         {
-                            Write(symbol, writer);
+                            await WriteAsync(symbol, writer);
                         }
                     }
                 }
-
-                Write(wordBuffer, writer);
             }
         }
 
-        private async Task ProcessPunctuationSymbolAsync(char symbol, bool removePunctuation, FileReader reader, StreamWriter writer)
+        private long WriteWholeWordToOutput(StreamReader reader, BufferedCharFileWriter writer)
         {
-            if (removePunctuation == false)
+            long length = 0;
+
+            while (!reader.EndOfStream && _symbolAnalyazer.IsWordSymbol((char)reader.Peek()))
             {
-                Write(symbol, writer);
+                char symbol = (char)reader.Read();
+                writer.Write(symbol);
+                length++;
             }
-            else
-            {
-                var nextSymbol = await reader.PeekAsync();
-                if (_lastWrittenSymbol != null && _symbolAnalyazer.IsWordSymbol(_lastWrittenSymbol.Value) && nextSymbol != -1 && _symbolAnalyazer.IsWordSymbol((char)nextSymbol))
-                {
-                    Write(' ', writer);
-                }
-            }
+
+            return length;
         }
 
-        private void ProcessPunctuationSymbol(char symbol, bool removePunctuation, StreamReader reader, StreamWriter writer)
+        // only for demo
+        private async ValueTask<long> WriteWholeWordToOutputAsync(FileReader reader, BufferedCharFileWriter writer)
         {
-            if (removePunctuation == false)
+            long length = 0;
+
+            while (!reader.EndOfStream && _symbolAnalyazer.IsWordSymbol((char) await reader.PeekAsync()))
             {
-                Write(symbol, writer);
+                char symbol = (char) await reader.ReadAsync();
+                await writer.WriteAsync(symbol);
+                length++;
             }
-            else
-            {
-                var nextSymbol = reader.Peek();
-                if (_lastWrittenSymbol != null && _symbolAnalyazer.IsWordSymbol(_lastWrittenSymbol.Value) && nextSymbol != -1 && _symbolAnalyazer.IsWordSymbol((char)nextSymbol))
-                {
-                    Write(' ', writer);
-                }
-            }
-        }
-        private void Write(WordBuffer wordBuffer, StreamWriter writer)
-        {
-            if (wordBuffer.Length > 0)
-            {
-                writer.Write(wordBuffer.Buffer);
-                _lastWrittenSymbol = wordBuffer.LastSymbol!.Value;
-            }
+
+            return length;
         }
 
-        private void Write(char symbol, StreamWriter writer)
+        private void Write(char symbol, BufferedCharFileWriter writer)
         {
             writer.Write(symbol);
             _lastWrittenSymbol = symbol;
         }
 
-        private async ValueTask ReadRestOfWordAsync(FileReader reader)
+        // only for demo
+        private ValueTask WriteAsync(char symbol, BufferedCharFileWriter writer)
         {
-            while (!reader.EndOfStream)
-            {
-                char symbol = (char)await reader.PeekAsync();
-                if (_symbolAnalyazer.IsDelimiter(symbol))
-                    return;
-                else
-                    await reader.ReadAsync();
-            }
-        }
-
-        private void ReadRestOfWord(StreamReader reader)
-        {
-            while (!reader.EndOfStream)
-            {
-                char symbol = (char)reader.Peek();
-                if (_symbolAnalyazer.IsDelimiter(symbol))
-                    return;
-                else
-                    reader.Read();
-            }
-        }
-
-        private async ValueTask WriteAsync(WordBuffer wordBuffer, StreamWriter writer)
-        {
-            if (wordBuffer.Length > 0)
-            {
-                await writer.WriteAsync(wordBuffer.Memory);
-                _lastWrittenSymbol = wordBuffer.LastSymbol!.Value;
-            }
-        }
-
-        private async ValueTask WriteAsync(char symbol, StreamWriter writer)
-        {
-            await writer.WriteAsync(symbol);
             _lastWrittenSymbol = symbol;
+            return writer.WriteAsync(symbol);
         }
-
     }
 }

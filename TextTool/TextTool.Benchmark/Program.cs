@@ -1,4 +1,4 @@
 ﻿using BenchmarkDotNet.Running;
 using TextTool.Benchmark;
 
-BenchmarkRunner.Run<TaskAndValueTaskBenchmark>();
+BenchmarkRunner.Run<TextToolBenchmark>();

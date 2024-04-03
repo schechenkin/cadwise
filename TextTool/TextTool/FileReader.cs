@@ -10,10 +10,10 @@ namespace TextTool
         int index;
         int bytesRead;
 
-        public FileReader(string path)
+        public FileReader(string path, long bufferSize = 4096)
         {
             reader = new StreamReader(path);
-            buffer = new char[1024 * 1024];
+            buffer = new char[bufferSize];
         }
 
         public async ValueTask<int> ReadAsync()
